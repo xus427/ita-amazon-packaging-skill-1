@@ -1,0 +1,22 @@
+# 敏感配置（含 API Key）
+.env
+.env.local
+models.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 生成的图片
+output/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
