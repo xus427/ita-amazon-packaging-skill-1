@@ -1,76 +1,89 @@
-# 亚马逊包装主图生成器 Skill
+# 亚马逊包装主图生成器
 
-直接生成亚马逊产品包装主图，支持 AI 绘图 API 调用。
+当用户请求设计亚马逊产品包装、生成产品效果图、创建包装主图时，使用此 Skill。
 
-## 功能
-
-1. 根据产品信息生成包装设计方案
-2. 自动生成优化的 AI 绘图提示词
-3. 调用绘图 API 直接生成图片
-4. 支持多种绘图后端：Pollinations、Stable Diffusion、Midjourney
-
-## 快速开始
+## 启动
 
 ```bash
-cd /root/.openclaw/workspace/skills/amazon-packaging-skill
-python3 app.py
+cd /root/.openclaw/workspace/skills/ita-amazon-packaging-skill
+bash start.sh
 ```
 
-## API 接口
+服务运行在 `http://localhost:5012`。
 
-### 生成包装图
+## 工具
 
-```bash
-POST /api/generate
+### 批量生成效果图（推荐）
+
+一次生成多张不同风格的亚马逊包装效果图。
+
+```http
+POST http://localhost:5012/api/batch-generate
+Content-Type: application/json
 
 {
-  "product_name": "儿童 DIY 手链套装",
-  "package_type": "礼盒",
-  "target_market": "美国",
-  "style_keywords": ["卡通", "糖果色", "可爱"],
-  "core_features": ["500+配件", "无毒材料", "教程 included"],
+  "product_name": "产品名称（必填）",
+  "package_type": "包装类型，如：彩盒、礼盒、袋装",
+  "target_market": "目标市场，如：美国、欧洲",
+  "style_keywords": ["风格关键词数组，如：卡通、可爱、简约"],
+  "core_features": ["核心卖点数组，如：500+配件、无毒材料"],
+  "brand_name": "品牌名称",
+  "count": 6,
+  "image_backend": "apiyi"
+}
+```
+
+返回值包含 `images` 数组，每张图有 `image_key`（可直接在飞书消息中展示）和 `filepath`。
+
+### 生成单张效果图
+
+```http
+POST http://localhost:5012/api/generate
+Content-Type: application/json
+
+{
+  "product_name": "产品名称（必填）",
+  "package_type": "彩盒",
+  "style_keywords": ["卡通", "糖果色"],
+  "core_features": ["500+配件", "无毒材料"],
   "brand_name": "CraftJoy",
-  "age_mark": "6+",
   "generate_image": true,
-  "image_backend": "pollinations"  // 可选: pollinations, sd, mj
+  "image_backend": "apiyi"
 }
 ```
 
-### 仅生成提示词
+### 分析参考图片
 
-```bash
-POST /api/generate
+分析用户上传的参考图片，提取设计要素。
+
+```http
+POST http://localhost:5012/api/analyze-image
+Content-Type: application/json
 
 {
-  "product_name": "儿童 DIY 手链套装",
-  "generate_image": false
+  "image_url": "图片URL",
+  "extra_instruction": "额外分析要求（可选）"
 }
 ```
 
-## 配置
+### 健康检查
 
-复制 `.env.example` 为 `.env` 并配置：
+```http
+GET http://localhost:5012/health
+```
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `FLASK_HOST` | 服务监听地址 | `0.0.0.0` |
-| `FLASK_PORT` | 服务端口 | `5010` |
-| `DEFAULT_IMAGE_BACKEND` | 默认绘图后端 | `pollinations` |
-| `SD_API_URL` | Stable Diffusion API 地址 | — |
-| `MJ_API_KEY` | Midjourney API Key | — |
-| `OUTPUT_DIR` | 图片输出目录 | `./output` |
+## 使用流程
 
-## 绘图后端
+1. 用户提供产品信息（名称、卖点、风格偏好等）
+2. 调用 `/api/batch-generate` 批量生成 6 张不同风格的效果图
+3. 将生成的图片通过 `image_key` 展示给用户
+4. 如果用户提供了参考图片，先调用 `/api/analyze-image` 分析，再将分析结果传入生成接口
 
-### Pollinations (默认，免费)
-- 无需 API Key
-- 直接通过 URL 生成图片
-- 适合快速测试
+## 支持的设计风格
 
-### Stable Diffusion
-- 需要本地或远程 SD 服务
-- 配置 `SD_API_URL`
-
-### Midjourney
-- 需要 API Key
-- 配置 `MJ_API_KEY`
+- 信息优先型：大字体卖点突出，适合移动端缩略图
+- 高端礼盒型：哑光/UV 工艺感，适合送礼类产品
+- 透明橱窗型：透明展示窗，展示实物增加信任感
+- 缩略图冲击型：高饱和度配色，在搜索结果中脱颖而出
+- 场景插画型：使用场景插画，传达产品使用方式
+- 极简品牌型：简约品牌风，适合 A+ 内容页面
