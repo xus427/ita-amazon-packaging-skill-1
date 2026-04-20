@@ -45,7 +45,7 @@ class ImageAnalyzer:
         分析参考图片。
 
         Args:
-            image_source: 本地文件路径 或 图片 URL
+            image_source: 本地文件路径、http(s) 图片 URL、或 data:image/...;base64,... 格式
             extra_instruction: 用户额外的分析要求
 
         Returns:
@@ -53,6 +53,11 @@ class ImageAnalyzer:
         """
         try:
             if image_source.startswith(("http://", "https://")):
+                image_content = {
+                    "type": "image_url",
+                    "image_url": {"url": image_source, "detail": "high"},
+                }
+            elif image_source.startswith("data:image/"):
                 image_content = {
                     "type": "image_url",
                     "image_url": {"url": image_source, "detail": "high"},

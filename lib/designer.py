@@ -52,6 +52,14 @@ class PackagingDesigner:
         "科技": "futuristic tech style, neon accents",
         "自然": "organic natural style, earth tones"
     }
+
+    @staticmethod
+    def _clamp(v: float, vmin: float, vmax: float) -> float:
+        return max(vmin, min(vmax, float(v)))
+
+    def _map_style_atoms_to_prompt_controls(self, style_atoms: Dict) -> Dict:
+        """Instance 入口，委托给模块级 map_style_atoms_to_prompt。"""
+        return map_style_atoms_to_prompt(style_atoms)
     
     def __init__(self):
         self.design = {}
@@ -310,6 +318,7 @@ class PackagingDesigner:
 
         ref = params.get("_ref_analysis", {})
         ref_parts = self._build_reference_prompt(ref)
+        controls = self._map_style_atoms_to_prompt_controls(params.get("_style_atoms", {}))
 
         variations = []
         designs_pool = self.DESIGN_VARIATIONS[:count]
@@ -325,14 +334,20 @@ class PackagingDesigner:
             if ref_parts:
                 prompt_parts.append(f"reference style: {ref_parts}")
 
+            design_phrases = controls.get("phrases", []) or [
+                controls.get("contrast_phrase", ""),
+                controls.get("layout_phrase", ""),
+                controls.get("headline_phrase", ""),
+            ]
+            prompt_parts += design_phrases
             prompt_parts += [
                 f"color scheme: {color_scheme['desc']}",
                 dv["style"],
                 dv["layout"],
-                f'large bold text "{hierarchy["primary"]}" on front',
+                f'headline text "{hierarchy["primary"]}" on front',
                 dv.get("extra", ""),
                 "pure white background RGB(255,255,255)",
-                "product fills 85 percent of frame",
+                controls.get("frame_fill_phrase", "product fills 85 percent of frame"),
                 "professional commercial product photography, even studio lighting, soft shadow",
                 "high detail, 8k, sharp focus",
                 "isolated on pure white, no props, no scene",
@@ -352,6 +367,7 @@ class PackagingDesigner:
                 "style_label": dv["label"],
                 "amazon_note": dv.get("extra", ""),
                 "reference_analysis": ref if ref else None,
+                "style_atoms": controls["debug_atoms"],
                 "prompt": prompt,
             }
 
@@ -398,3 +414,160 @@ def generate_packaging_design(params: Dict) -> Dict:
 def generate_prompt_variations(params: Dict, count: int = 6) -> list:
     """生成多套不同设计风格的 prompt"""
     return designer.generate_prompt_variations(params, count)
+
+
+# ==================== design_controls → prompt 映射 ====================
+# 模块级函数，供 app.py / 其它模块直接调用，等价于旧 _map_style_atoms_to_prompt_controls，
+# 但覆盖完整 design_controls（色彩 / 构图 / 文本 / 风格 四组 11 个 atom）。
+# 返回结构：
+#   {
+#     "phrases": [...],                # 拼接到 prompt 的短语列表（已过滤空）
+#     "debug_atoms": {...},            # 被 clamp 后的实际生效值
+#     # --- 向后兼容字段 ---
+#     "contrast_phrase": ...,
+#     "headline_phrase": ...,
+#     "layout_phrase": ...,
+#     "frame_fill_phrase": ...,
+#   }
+_ATOM_PROMPT_BOUNDS = {
+    "color_contrast":    (0.0, 1.0, 0.50),
+    "palette_warmth":    (0.0, 1.0, 0.50),
+    "color_saturation":  (0.0, 1.0, 0.50),
+    "layout_density":    (0.0, 1.0, 0.50),
+    "whitespace_ratio":  (0.0, 1.0, 0.35),
+    "frame_fill":        (0.40, 1.0, 0.85),
+    "headline_scale":    (0.0, 1.0, 0.50),
+    "typography_weight": (0.0, 1.0, 0.60),
+    "mood_premium":      (0.0, 1.0, 0.40),
+    "mood_playful":      (0.0, 1.0, 0.40),
+    "minimalism_level":  (0.0, 1.0, 0.30),
+}
+
+
+def _clamp_atom(atoms: Dict, name: str) -> float:
+    lo, hi, default = _ATOM_PROMPT_BOUNDS[name]
+    try:
+        v = float(atoms.get(name, default))
+    except Exception:
+        v = default
+    return max(lo, min(hi, v))
+
+
+def map_style_atoms_to_prompt(style_atoms: Dict) -> Dict:
+    """把 design_controls / style_atoms 映射为可拼接的 prompt 短语（向后兼容旧字段）。"""
+    atoms = style_atoms or {}
+    cc  = _clamp_atom(atoms, "color_contrast")
+    pw  = _clamp_atom(atoms, "palette_warmth")
+    cs  = _clamp_atom(atoms, "color_saturation")
+    ld  = _clamp_atom(atoms, "layout_density")
+    ws  = _clamp_atom(atoms, "whitespace_ratio")
+    ff  = _clamp_atom(atoms, "frame_fill")
+    hs  = _clamp_atom(atoms, "headline_scale")
+    tw  = _clamp_atom(atoms, "typography_weight")
+    mp  = _clamp_atom(atoms, "mood_premium")
+    mpl = _clamp_atom(atoms, "mood_playful")
+    ml  = _clamp_atom(atoms, "minimalism_level")
+
+    # ---------- 色彩 ----------
+    if cc >= 0.75:
+        contrast_phrase = "maximum contrast color blocks, very high visual separation"
+    elif cc >= 0.55:
+        contrast_phrase = "balanced high contrast color system"
+    elif cc >= 0.30:
+        contrast_phrase = "soft and moderate contrast color system"
+    else:
+        contrast_phrase = "low-contrast tonal color harmony"
+
+    if cs >= 0.70:
+        saturation_phrase = "vivid highly saturated color palette"
+    elif cs <= 0.30:
+        saturation_phrase = "muted desaturated color palette"
+    else:
+        saturation_phrase = ""
+
+    if pw >= 0.70:
+        warmth_phrase = "warm-toned palette with orange, red and amber accents"
+    elif pw <= 0.30:
+        warmth_phrase = "cool-toned palette with blue and teal accents"
+    else:
+        warmth_phrase = ""
+
+    # ---------- 构图 ----------
+    if ld >= 0.70:
+        layout_phrase = "dense information layout with compact visual modules"
+    elif ld >= 0.45:
+        layout_phrase = "balanced modular layout with clear spacing"
+    else:
+        layout_phrase = "spacious layout with generous whitespace"
+
+    if ws >= 0.65:
+        whitespace_phrase = "high whitespace ratio, premium breathing room"
+    elif ws <= 0.20:
+        whitespace_phrase = "edge-to-edge composition with minimal whitespace"
+    else:
+        whitespace_phrase = ""
+
+    ff_percent = int(round(60 + ff * 35))  # 0.4→74, 1.0→95
+    frame_fill_phrase = f"product fills {ff_percent} percent of frame"
+
+    # ---------- 文本 ----------
+    if hs >= 0.75:
+        headline_phrase = "oversized dominant headline text for instant readability"
+    elif hs >= 0.55:
+        headline_phrase = "prominent headline text with clear hierarchy"
+    else:
+        headline_phrase = "moderate headline emphasis with balanced text hierarchy"
+
+    if tw >= 0.70:
+        typography_phrase = "heavy bold typography, strong weight"
+    elif tw <= 0.35:
+        typography_phrase = "light refined typography, airy weight"
+    else:
+        typography_phrase = ""
+
+    # ---------- 情绪 / 风格 ----------
+    mood_bits = []
+    if mp >= 0.65:
+        mood_bits.append("premium refined aesthetic, luxury finish")
+    if mpl >= 0.65:
+        mood_bits.append("playful friendly tone, fun vibe")
+    if ml >= 0.70:
+        mood_bits.append("minimalist clean design, reductive composition")
+    elif ml <= 0.25:
+        mood_bits.append("rich decorative visual density")
+    mood_phrase = ", ".join(mood_bits) if mood_bits else ""
+
+    phrases = [
+        contrast_phrase,
+        saturation_phrase,
+        warmth_phrase,
+        layout_phrase,
+        whitespace_phrase,
+        headline_phrase,
+        typography_phrase,
+        mood_phrase,
+    ]
+    phrases = [p for p in phrases if p]
+
+    debug_atoms = {
+        "color_contrast":    round(cc, 4),
+        "palette_warmth":    round(pw, 4),
+        "color_saturation":  round(cs, 4),
+        "layout_density":    round(ld, 4),
+        "whitespace_ratio":  round(ws, 4),
+        "frame_fill":        round(ff, 4),
+        "headline_scale":    round(hs, 4),
+        "typography_weight": round(tw, 4),
+        "mood_premium":      round(mp, 4),
+        "mood_playful":      round(mpl, 4),
+        "minimalism_level":  round(ml, 4),
+    }
+
+    return {
+        "phrases": phrases,
+        "debug_atoms": debug_atoms,
+        "contrast_phrase": contrast_phrase,
+        "headline_phrase": headline_phrase,
+        "layout_phrase": layout_phrase,
+        "frame_fill_phrase": frame_fill_phrase,
+    }

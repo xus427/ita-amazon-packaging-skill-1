@@ -4,12 +4,16 @@
 
 ## 启动
 
+在**本仓库根目录**（包含 `app.py`、`templates/` 的目录）执行：
+
 ```bash
-cd /root/.openclaw/workspace/skills/ita-amazon-packaging-skill
-bash start.sh
+pip install -r requirements.txt   # 首次需要
+python app.py
 ```
 
-服务运行在 `http://localhost:5012`。
+Linux / macOS 也可使用根目录下的 `start.sh`（会先安装依赖再启动 `python3 app.py`）。
+
+Web 界面默认：**http://127.0.0.1:5012**；HTTP API 同上主机与端口（可用环境变量 `FLASK_PORT` 修改）。
 
 ## 工具
 

@@ -12,6 +12,14 @@ build/
 
 # 生成的图片
 output/
+uploads/
+
+# 虚拟环境
+venv/
+
+# 数据库
+instance/
+*.db
 
 # IDE
 .vscode/
