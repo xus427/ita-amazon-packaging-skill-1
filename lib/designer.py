@@ -5,10 +5,14 @@
 
 from typing import Dict, List, Optional
 import random
+import re
+from lib.style_keywords import get_keyword_prompt_fragments, get_keyword_negative_fragments
 
 
 class PackagingDesigner:
     """包装设计师 - 生成设计方案和提示词"""
+    CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
+    NON_EN_TEXT_RE = re.compile(r"[^A-Za-z0-9&+\-/:,.'() ]+")
     
     # 预设配色方案
     COLOR_SCHEMES = {
@@ -39,23 +43,39 @@ class PackagingDesigner:
         }
     }
     
-    # 风格关键词映射
-    STYLE_MAP = {
-        "卡通": "cartoon illustration style, cute characters",
-        "可爱": "kawaii style, adorable design",
-        "趣味": "fun and playful design, vibrant colors",
-        "DIY": "DIY craft style, handmade aesthetic",
-        "手绘": "hand-drawn style, sketch illustration",
-        "3D": "3D rendered packaging, realistic shadows",
-        "简约": "minimalist design, clean lines",
-        "复古": "vintage retro style, classic typography",
-        "科技": "futuristic tech style, neon accents",
-        "自然": "organic natural style, earth tones"
-    }
-
     @staticmethod
     def _clamp(v: float, vmin: float, vmax: float) -> float:
         return max(vmin, min(vmax, float(v)))
+
+    @classmethod
+    def _force_english_text(cls, text: str, fallback: str) -> str:
+        """
+        强制转为英文可用文本：
+        - 包含中文时，尽量提取英文/数字字符
+        - 若提取后为空，回退到 fallback
+        """
+        raw = str(text or "").strip()
+        if not raw:
+            return fallback
+        if not cls.CJK_RE.search(raw):
+            return raw
+        cleaned = cls.NON_EN_TEXT_RE.sub(" ", raw)
+        cleaned = " ".join(cleaned.split())
+        return cleaned if cleaned else fallback
+
+    @classmethod
+    def _sanitize_prompt_part(cls, text: str) -> str:
+        """
+        最终 prompt 级别清洗：
+        - 去除中文字符
+        - 保留常见英文符号
+        """
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        raw = cls.CJK_RE.sub(" ", raw)
+        raw = cls.NON_EN_TEXT_RE.sub(" ", raw)
+        return " ".join(raw.split())
 
     def _map_style_atoms_to_prompt_controls(self, style_atoms: Dict) -> Dict:
         """Instance 入口，委托给模块级 map_style_atoms_to_prompt。"""
@@ -80,24 +100,20 @@ class PackagingDesigner:
         # 2. 构建信息层级
         hierarchy = self._build_hierarchy(params)
         
-        # 3. 提取卖点
-        selling_points = self._extract_selling_points(params.get("core_features", []))
-        
-        # 4. 设计内容展示区
+        # 3. 设计内容展示区
         content_display = self._design_content_area(params)
         
-        # 5. 应用合规布局
+        # 4. 应用合规布局
         compliance = self._apply_compliance(params)
         
-        # 6. 生成 AI 提示词
-        prompt = self._generate_prompt(params, color_scheme, hierarchy, selling_points)
+        # 5. 生成 AI 提示词
+        prompt = self._generate_prompt(params, color_scheme, hierarchy)
         
         return {
             "product_name": params.get("product_name", ""),
             "package_type": params.get("package_type", "彩盒"),
             "color_scheme": color_scheme,
             "information_hierarchy": hierarchy,
-            "selling_points": selling_points,
             "content_display": content_display,
             "compliance": compliance,
             "prompt": prompt,
@@ -125,7 +141,7 @@ class PackagingDesigner:
     
     def _build_hierarchy(self, params: Dict) -> Dict:
         """构建信息层级"""
-        features = params.get("core_features", [])
+        features = []
         
         # 一级：最重要的卖点（通常是数量/核心功能）
         primary = features[0] if features else "PREMIUM QUALITY"
@@ -135,30 +151,22 @@ class PackagingDesigner:
         
         # 三级：其他卖点
         tertiary = features[1:4] if len(features) > 1 else ["High Quality", "Great Gift"]
-        
+
+        primary = self._force_english_text(primary, "PREMIUM QUALITY")
+        secondary = self._force_english_text(secondary, "Product Name")
+        tertiary = [
+            self._force_english_text(item, fallback)
+            for item, fallback in zip(
+                tertiary,
+                ["High Quality", "Great Gift", "Easy To Use"],
+            )
+        ]
+
         return {
             "primary": primary,
             "secondary": secondary,
             "tertiary": tertiary
         }
-    
-    def _extract_selling_points(self, features: List[str]) -> List[str]:
-        """提取并优化卖点（每条≤5词）"""
-        selling_points = []
-        
-        for feature in features[:5]:  # 最多5个卖点
-            # 简化为≤5词
-            words = feature.split()
-            if len(words) > 5:
-                feature = " ".join(words[:5])
-            selling_points.append(feature)
-        
-        # 如果卖点不足，补充默认
-        defaults = ["Perfect Gift Choice", "Premium Materials", "Easy to Use", "Creative Fun", "Educational Toy"]
-        while len(selling_points) < 3:
-            selling_points.append(defaults[len(selling_points)])
-        
-        return selling_points
     
     def _design_content_area(self, params: Dict) -> Dict:
         """设计内容展示区"""
@@ -187,17 +195,16 @@ class PackagingDesigner:
             "warning": compliance.get("warning", "WARNING: CHOKING HAZARD - SMALL PARTS. NOT FOR CHILDREN UNDER 3 YEARS.")
         }
     
-    def _generate_prompt(self, params: Dict, color_scheme: Dict, hierarchy: Dict, selling_points: List[str]) -> str:
+    def _generate_prompt(self, params: Dict, color_scheme: Dict, hierarchy: Dict) -> str:
         """生成 AI 绘图提示词"""
-        product_name = params.get("product_name", "Product")
-        package_type = params.get("package_type", "packaging box")
+        product_name = self._force_english_text(params.get("product_name", "Product"), "Product")
+        package_type = self._force_english_text(params.get("package_type", "packaging box"), "packaging box")
         style_keywords = params.get("style_keywords", [])
+        image_ratio = params.get("image_ratio", "3:4")
         
-        # 转换风格关键词
-        style_parts = []
-        for keyword in style_keywords:
-            if keyword in self.STYLE_MAP:
-                style_parts.append(self.STYLE_MAP[keyword])
+        # 转换风格关键词（工业级结构化映射）
+        style_parts = get_keyword_prompt_fragments(style_keywords)
+        neg_parts = get_keyword_negative_fragments(style_keywords)
         
         if not style_parts:
             style_parts = ["professional packaging design", "commercial product photography"]
@@ -214,13 +221,17 @@ class PackagingDesigner:
             "high detail, 8k",
             "no scene, isolated on white",
             "e-commerce ready",
-            "--ar 3:4"
+            "all visible text must be English only, no Chinese characters, no Hanzi",
+            ("avoid: " + ", ".join(neg_parts)) if neg_parts else "",
+            f"--ar {image_ratio}"
         ]
         
         # 如果有展示窗需求
         if params.get("need_content_display", True):
             prompt_parts.insert(3, "transparent window showing product inside")
         
+        prompt_parts = [self._sanitize_prompt_part(p) for p in prompt_parts]
+        prompt_parts = [p for p in prompt_parts if p]
         return ", ".join(prompt_parts)
     
     def _generate_layout_description(self, params: Dict, color_scheme: Dict, hierarchy: Dict) -> str:
@@ -311,14 +322,17 @@ class PackagingDesigner:
         每套方案使用不同的配色 + 风格 + 排版思路，生成独立的 prompt。
         如果 params 中包含 _ref_analysis（参考图分析结果），会融入每条 prompt。
         """
-        product_name = params.get("product_name", "Product")
-        package_type = params.get("package_type", "packaging box")
+        product_name = self._force_english_text(params.get("product_name", "Product"), "Product")
+        package_type = self._force_english_text(params.get("package_type", "packaging box"), "packaging box")
         hierarchy = self._build_hierarchy(params)
-        selling_points = self._extract_selling_points(params.get("core_features", []))
-
         ref = params.get("_ref_analysis", {})
         ref_parts = self._build_reference_prompt(ref)
         controls = self._map_style_atoms_to_prompt_controls(params.get("_style_atoms", {}))
+        primary_color = self._force_english_text((params.get("primary_color") or "").strip(), "")
+        image_ratio = params.get("image_ratio", "3:4")
+        keyword_prompts = get_keyword_prompt_fragments(params.get("style_keywords", []))
+        keyword_negs = get_keyword_negative_fragments(params.get("style_keywords", []))
+        spec_prompt = str(params.get("_design_spec_prompt", "") or "").strip()
 
         variations = []
         designs_pool = self.DESIGN_VARIATIONS[:count]
@@ -332,7 +346,9 @@ class PackagingDesigner:
             ]
 
             if ref_parts:
-                prompt_parts.append(f"reference style: {ref_parts}")
+                prompt_parts.append(f"reference style: {self._sanitize_prompt_part(ref_parts)}")
+            if spec_prompt:
+                prompt_parts.append(f"design brief: {self._sanitize_prompt_part(spec_prompt)}")
 
             design_phrases = controls.get("phrases", []) or [
                 controls.get("contrast_phrase", ""),
@@ -340,8 +356,10 @@ class PackagingDesigner:
                 controls.get("headline_phrase", ""),
             ]
             prompt_parts += design_phrases
+            prompt_parts += keyword_prompts
             prompt_parts += [
                 f"color scheme: {color_scheme['desc']}",
+                (f"primary color focus: {primary_color}" if primary_color else ""),
                 dv["style"],
                 dv["layout"],
                 f'headline text "{hierarchy["primary"]}" on front',
@@ -352,9 +370,12 @@ class PackagingDesigner:
                 "high detail, 8k, sharp focus",
                 "isolated on pure white, no props, no scene",
                 "Amazon listing main image ready",
-                "--ar 3:4",
+                "all visible text must be English only, no Chinese characters, no Hanzi",
+                ("avoid: " + ", ".join(keyword_negs)) if keyword_negs else "",
+                f"--ar {image_ratio}",
             ]
 
+            prompt_parts = [self._sanitize_prompt_part(p) for p in prompt_parts]
             prompt_parts = [p for p in prompt_parts if p]
             prompt = ", ".join(prompt_parts)
 
@@ -363,7 +384,6 @@ class PackagingDesigner:
                 "package_type": params.get("package_type", "彩盒"),
                 "color_scheme": color_scheme,
                 "information_hierarchy": hierarchy,
-                "selling_points": selling_points,
                 "style_label": dv["label"],
                 "amazon_note": dv.get("extra", ""),
                 "reference_analysis": ref if ref else None,
@@ -441,6 +461,7 @@ _ATOM_PROMPT_BOUNDS = {
     "mood_premium":      (0.0, 1.0, 0.40),
     "mood_playful":      (0.0, 1.0, 0.40),
     "minimalism_level":  (0.0, 1.0, 0.30),
+    "texture_realism":   (0.0, 1.0, 0.55),
 }
 
 
@@ -467,6 +488,7 @@ def map_style_atoms_to_prompt(style_atoms: Dict) -> Dict:
     mp  = _clamp_atom(atoms, "mood_premium")
     mpl = _clamp_atom(atoms, "mood_playful")
     ml  = _clamp_atom(atoms, "minimalism_level")
+    tr  = _clamp_atom(atoms, "texture_realism")
 
     # ---------- 色彩 ----------
     if cc >= 0.75:
@@ -535,6 +557,10 @@ def map_style_atoms_to_prompt(style_atoms: Dict) -> Dict:
         mood_bits.append("minimalist clean design, reductive composition")
     elif ml <= 0.25:
         mood_bits.append("rich decorative visual density")
+    if tr >= 0.70:
+        mood_bits.append("photorealistic material texture, real-world studio look")
+    elif tr <= 0.30:
+        mood_bits.append("stylized graphic texture, less photographic realism")
     mood_phrase = ", ".join(mood_bits) if mood_bits else ""
 
     phrases = [
@@ -561,6 +587,7 @@ def map_style_atoms_to_prompt(style_atoms: Dict) -> Dict:
         "mood_premium":      round(mp, 4),
         "mood_playful":      round(mpl, 4),
         "minimalism_level":  round(ml, 4),
+        "texture_realism":   round(tr, 4),
     }
 
     return {

@@ -87,6 +87,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .dc-slider-row input[type="range"]{width:100%;accent-color:var(--primary)}
 .dc-slider-row .dc-val{font-size:12px;color:#475569;text-align:right;font-variant-numeric:tabular-nums}
 .dc-slider-row.diff .dc-val{color:#4338ca;font-weight:600}
+.advanced-box{margin-top:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc}
+.advanced-box .adv-title{font-size:12px;font-weight:700;color:#334155;margin-bottom:8px}
+.alpha-row{display:grid;grid-template-columns:120px 1fr 56px;align-items:center;gap:10px}
+.alpha-row .alpha-label{font-size:13px;color:#1f2937}
+.alpha-row input[type="range"]{width:100%;accent-color:var(--primary)}
+.alpha-row .alpha-val{font-size:12px;color:#475569;text-align:right}
+.alpha-one-time{margin-top:8px;font-size:12px;color:#475569;display:flex;align-items:center;gap:8px}
 
 .progress-bar{background:var(--bg);border-radius:99px;height:8px;overflow:hidden;margin-top:12px;display:none}
 .progress-bar .fill{height:100%;background:linear-gradient(90deg,#667eea,#764ba2);border-radius:99px;width:0;transition:width .5s}
@@ -110,7 +117,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .gallery-card{background:var(--card);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);transition:box-shadow .2s}
 .gallery-card:hover{box-shadow:0 8px 24px rgba(0,0,0,.08)}
 .gallery-card.selected{border-color:#4f46e5;box-shadow:0 0 0 2px rgba(79,70,229,.15),0 8px 24px rgba(0,0,0,.08)}
-.gallery-card img{width:100%;aspect-ratio:3/4;object-fit:cover;cursor:pointer;background:#f3f4f6}
+.gallery-card img{width:100%;height:auto;max-height:420px;object-fit:contain;cursor:pointer;background:#f3f4f6}
+.gallery-fail-ph{min-height:200px;max-height:420px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;background:#fef2f2;color:#7f1d1d;font-size:12px;line-height:1.55;text-align:center;gap:8px}
+.gallery-fail-ph .fail-title{font-weight:700;font-size:13px;color:#b91c1c}
+.gallery-fail-ph .fail-detail{word-break:break-word;max-height:180px;overflow-y:auto;color:#991b1b}
 .gallery-card .card-info{padding:12px 16px}
 .gallery-card .card-info .label{font-size:13px;font-weight:600;margin-bottom:4px}
 .gallery-card .card-info .meta{font-size:12px;color:var(--text-sec)}
@@ -153,7 +163,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .ref-paste-text{font-size:14px;color:var(--text);display:block;margin-bottom:4px}
 .ref-paste-sub{font-size:12px;color:var(--text-sec)}
 .ref-preview-wrap{display:none;align-items:flex-start;gap:12px;margin-top:12px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
-.ref-preview-wrap img{max-height:160px;max-width:100%;border-radius:8px;border:1px solid var(--border);object-fit:contain}
+.ref-preview-list{display:flex;gap:10px;flex-wrap:wrap;flex:1}
+.ref-preview-item{display:flex;flex-direction:column;gap:6px}
+.ref-preview-wrap img{height:120px;width:120px;border-radius:8px;border:1px solid var(--border);object-fit:cover;background:#fff}
 .form-notice{font-size:13px;color:#4338ca;margin-bottom:18px;padding:10px 14px;background:#eef2ff;border-radius:8px;border:1px solid #c7d2fe;line-height:1.5}
 </style>
 </head>
@@ -293,26 +305,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
                 <select id="genBackend">
                   <option value="apiyi">API易 (GPT-Image)</option>
                   <option value="pollinations">Pollinations (免费)</option>
+                  <option value="sd">Stable Diffusion（本地 A1111，需 SD_API_URL）</option>
                 </select>
               </div>
             </div>
             <div class="form-group" style="margin-bottom:16px">
-              <label>核心卖点（每行一个）</label>
-              <textarea id="coreFeatures" placeholder="500+ Pieces&#10;Non-toxic Materials&#10;Ages 6+&#10;Glow in the Dark"></textarea>
+              <label>用一句话描述你想要的设计</label>
+              <textarea id="designBriefText" placeholder="例如：高对比科技感包装，突出卖点，适合亚马逊主图" style="min-height:64px"></textarea>
             </div>
             <div class="form-group" style="margin-bottom:16px">
               <label>风格关键词</label>
               <div class="style-chips" id="styleChips">
-                <span class="style-chip" data-v="卡通">卡通</span>
-                <span class="style-chip" data-v="可爱">可爱</span>
-                <span class="style-chip" data-v="趣味">趣味</span>
-                <span class="style-chip" data-v="简约">简约</span>
-                <span class="style-chip" data-v="高端">高端</span>
-                <span class="style-chip" data-v="DIY">DIY</span>
-                <span class="style-chip" data-v="科技">科技</span>
+                <span class="style-chip" data-v="欧美">欧美</span>
+                <span class="style-chip" data-v="ins">ins</span>
+                <span class="style-chip" data-v="北欧">北欧</span>
                 <span class="style-chip" data-v="复古">复古</span>
-                <span class="style-chip" data-v="自然">自然</span>
-                <span class="style-chip" data-v="3D">3D</span>
+                <span class="style-chip" data-v="扁平">扁平</span>
+                <span class="style-chip" data-v="科技">科技</span>
+                <span class="style-chip" data-v="原木">原木</span>
+                <span class="style-chip" data-v="童趣">童趣</span>
+                <span class="style-chip" data-v="暗黑">暗黑</span>
+                <span class="style-chip" data-v="真实感">真实感</span>
               </div>
             </div>
             <div class="design-controls" id="designControlsPanel">
@@ -326,20 +339,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
               <div id="designControlsBody">
                 <div style="font-size:12px;color:#94a3b8">加载设计控件中…</div>
               </div>
+              <div class="form-row" style="margin-top:12px">
+                <div class="form-group" style="margin-bottom:0">
+                  <label>主色调</label>
+                  <select id="primaryColor">
+                    <option value="">自动（由风格和内容决定）</option>
+                    <option value="赤色">赤色</option>
+                    <option value="橙色">橙色</option>
+                    <option value="黄色">黄色</option>
+                    <option value="绿色">绿色</option>
+                    <option value="青色">青色</option>
+                    <option value="蓝色">蓝色</option>
+                    <option value="紫色">紫色</option>
+                    <option value="金色">金色</option>
+                    <option value="银色">银色</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label>生成比例</label>
+                  <select id="imageRatio">
+                    <option value="1:1">1:1（方图）</option>
+                    <option value="4:5">4:5（竖版常用）</option>
+                    <option value="3:4" selected>3:4（包装主图推荐）</option>
+                    <option value="2:3">2:3（海报）</option>
+                    <option value="16:9">16:9（横图）</option>
+                    <option value="9:16">9:16（竖屏）</option>
+                  </select>
+                </div>
+              </div>
+              <div class="advanced-box">
+                <div class="adv-title">高级：历史风格权重（alpha）</div>
+                <div class="alpha-row">
+                  <div class="alpha-label">alpha（0~1）</div>
+                  <input type="range" id="alphaSlider" min="0" max="1" step="0.01" value="0.60" oninput="onAlphaSliderInput(this.value)">
+                  <div class="alpha-val" id="alphaVal">0.60</div>
+                </div>
+                <label class="alpha-one-time">
+                  <input type="checkbox" id="alphaEnabled">
+                  启用 alpha 覆盖（关闭则使用后端默认）
+                </label>
+                <label class="alpha-one-time">
+                  <input type="checkbox" id="alphaOneTime" checked>
+                  仅本次生效（生成后自动关闭）
+                </label>
+              </div>
             </div>
             <div class="form-group" style="margin-bottom:0">
               <label>参考图片（可选）</label>
-              <p class="ref-hint">可填写网络图片地址；或使用下方区域：拖放、Ctrl+V 粘贴截图，或点按钮选择本地文件（本地图优先于 URL）。</p>
+              <p class="ref-hint">可填写网络图片地址；或使用下方区域：拖放、Ctrl+V 粘贴截图，或点按钮选择本地文件（最多 2 张，本地图优先于 URL）。</p>
               <input type="text" id="refImageUrl" placeholder="https://example.com/reference.jpg">
-              <input type="file" id="refImageFile" accept="image/*" style="display:none">
+              <input type="file" id="refImageFile" accept="image/*" multiple style="display:none">
               <div id="refPasteZone" class="ref-paste-zone" tabindex="0" title="拖放、粘贴或选择参考图">
-                <span class="ref-paste-text">拖放本地图片到此处，或先点击本区域再按 Ctrl+V 粘贴截图</span>
+                <span class="ref-paste-text">拖放本地图片到此处，或先点击本区域再按 Ctrl+V 粘贴截图（最多 2 张）</span>
                 <span class="ref-paste-sub">支持从截图工具、画图、浏览器等复制图片后粘贴</span>
                 <button type="button" class="btn btn-outline btn-sm" style="margin-top:12px" onclick="event.stopPropagation();document.getElementById('refImageFile').click()">从本机选择图片…</button>
               </div>
               <div id="refPreviewWrap" class="ref-preview-wrap">
-                <img id="refPreviewImg" src="" alt="参考图预览">
-                <button type="button" class="btn btn-outline btn-sm" onclick="clearRefLocal()">移除本地参考图</button>
+                <div id="refPreviewList" class="ref-preview-list"></div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="clearRefLocal()">清空本地参考图</button>
               </div>
             </div>
             <div class="form-actions">
@@ -391,18 +448,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 <script>
 const API = '';
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 let currentUser = null;
 let currentProject = null;
 let projects = [];
 let captchaIds = {login: '', reg: ''};
-let refLocalDataUrl = null;
+let refLocalDataUrls = [];
 let latestStyleTrace = null;
 // design_controls：初始占位，checkAuth 后会由 /api/design-controls 覆盖成用户实际值
 let styleAtomState = {
   color_contrast: 0.50, palette_warmth: 0.50, color_saturation: 0.50,
   layout_density: 0.50, whitespace_ratio: 0.35, frame_fill: 0.85,
   headline_scale: 0.50, typography_weight: 0.60,
-  mood_premium: 0.40, mood_playful: 0.40, minimalism_level: 0.30,
+  mood_premium: 0.40, mood_playful: 0.40, minimalism_level: 0.30, texture_realism: 0.55,
 };
 let designControlsSchema = null;
 let designControlsBounds = null;
@@ -411,6 +475,27 @@ const atomSaveTimers = {};
 let latestTaskId = null;
 let selectedImageIndex = null;
 let latestGalleryImages = [];
+let latestTaskImageRatio = '3:4';
+let latestDesignSpec = {};
+
+function openLightboxEv(ev, src) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  openLightbox(src);
+}
+
+function onAlphaSliderInput(v) {
+  const el = document.getElementById('alphaVal');
+  if (el) el.textContent = Number(v).toFixed(2);
+}
+
+function buildAlphaPayload() {
+  const enabled = document.getElementById('alphaEnabled')?.checked;
+  if (!enabled) return {};
+  const slider = document.getElementById('alphaSlider');
+  const alpha = slider ? Number(slider.value) : 0.6;
+  if (!Number.isFinite(alpha)) return {};
+  return { alpha: Math.max(0, Math.min(1, alpha)) };
+}
 
 // ===== CAPTCHA =====
 function loadCaptcha(type) {
@@ -955,22 +1040,49 @@ function setRefLocalFromFile(file) {
     showStatus('error', '请选择图片文件（支持常见图片格式）');
     return;
   }
+  if (refLocalDataUrls.length >= 2) {
+    showStatus('error', '本地参考图最多 2 张，请先移除后再添加');
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
-    refLocalDataUrl = reader.result;
-    document.getElementById('refPreviewImg').src = refLocalDataUrl;
-    document.getElementById('refPreviewWrap').style.display = 'flex';
-    document.getElementById('refPasteZone').style.display = 'none';
+    refLocalDataUrls.push(reader.result);
+    renderRefLocalPreview();
   };
   reader.onerror = () => showStatus('error', '读取图片失败');
   reader.readAsDataURL(file);
 }
 
+function renderRefLocalPreview() {
+  const wrap = document.getElementById('refPreviewWrap');
+  const list = document.getElementById('refPreviewList');
+  const zone = document.getElementById('refPasteZone');
+  if (!wrap || !list || !zone) return;
+  if (!refLocalDataUrls.length) {
+    wrap.style.display = 'none';
+    zone.style.display = 'block';
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = refLocalDataUrls.map((src, i) => `
+    <div class="ref-preview-item">
+      <img src="${src}" alt="参考图${i + 1}">
+      <button type="button" class="btn btn-outline btn-sm" onclick="removeRefLocalAt(${i})">移除第 ${i + 1} 张</button>
+    </div>
+  `).join('');
+  wrap.style.display = 'flex';
+  zone.style.display = refLocalDataUrls.length >= 2 ? 'none' : 'block';
+}
+
+function removeRefLocalAt(index) {
+  if (index < 0 || index >= refLocalDataUrls.length) return;
+  refLocalDataUrls.splice(index, 1);
+  renderRefLocalPreview();
+}
+
 function clearRefLocal() {
-  refLocalDataUrl = null;
-  document.getElementById('refPreviewImg').src = '';
-  document.getElementById('refPreviewWrap').style.display = 'none';
-  document.getElementById('refPasteZone').style.display = 'block';
+  refLocalDataUrls = [];
+  renderRefLocalPreview();
   document.getElementById('refImageFile').value = '';
 }
 
@@ -980,8 +1092,9 @@ function initRefImageControls() {
   if (!zone || !fileInput) return;
 
   fileInput.addEventListener('change', () => {
-    const f = fileInput.files && fileInput.files[0];
-    if (f) setRefLocalFromFile(f);
+    const files = fileInput.files ? Array.from(fileInput.files) : [];
+    files.slice(0, 2).forEach((f) => setRefLocalFromFile(f));
+    fileInput.value = '';
   });
 
   zone.addEventListener('paste', (e) => {
@@ -1012,8 +1125,8 @@ function initRefImageControls() {
     e.preventDefault();
     e.stopPropagation();
     zone.classList.remove('dragover');
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) setRefLocalFromFile(f);
+    const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+    files.slice(0, 2).forEach((f) => setRefLocalFromFile(f));
   });
 }
 
@@ -1023,18 +1136,24 @@ function doGenerate() {
   if (!productName) return showStatus('error', '请输入产品名称');
   if (!currentProject) return showStatus('error', '请先选择或创建一个项目');
   const ctx = getRequestContext();
+  const refUrl = document.getElementById('refImageUrl').value.trim();
+  const referenceImageUrls = refLocalDataUrls.length ? [...refLocalDataUrls] : (refUrl ? [refUrl] : []);
 
   const data = {
     ...ctx,
     product_name: productName,
     package_type: document.getElementById('packageType').value,
     brand_name: document.getElementById('brandName').value.trim(),
-    core_features: document.getElementById('coreFeatures').value.split('\n').filter(x => x.trim()),
+    design_brief_text: document.getElementById('designBriefText').value.trim(),
     style_keywords: getSelectedStyles(),
+    primary_color: document.getElementById('primaryColor').value,
+    image_ratio: document.getElementById('imageRatio').value,
     style_overrides: styleAtomState,
     count: parseInt(document.getElementById('genCount').value),
     image_backend: document.getElementById('genBackend').value,
-    reference_image_url: refLocalDataUrl || document.getElementById('refImageUrl').value.trim()
+    reference_image_urls: referenceImageUrls,
+    reference_image_url: referenceImageUrls[0] || '',
+    ...buildAlphaPayload()
   };
 
   const btn = document.getElementById('btnGenerate');
@@ -1053,6 +1172,8 @@ function doGenerate() {
     showProgress(false);
     if (d.code === 200) {
       latestTaskId = d.task_id || null;
+      latestTaskImageRatio = d.image_ratio || document.getElementById('imageRatio').value || '3:4';
+      latestDesignSpec = d.design_spec || {};
       selectedImageIndex = null;
       latestStyleTrace = d.style_trace || d.trace || null;
       if (latestStyleTrace && latestStyleTrace.design_controls_snapshot && latestStyleTrace.design_controls_snapshot.values) {
@@ -1063,6 +1184,10 @@ function doGenerate() {
       showStatus('success', d.msg || '生成完成');
       renderGallery(d.images);
       loadProjects();
+      if (document.getElementById('alphaOneTime')?.checked) {
+        const en = document.getElementById('alphaEnabled');
+        if (en) en.checked = false;
+      }
     } else {
       latestTaskId = null;
       selectedImageIndex = null;
@@ -1116,32 +1241,46 @@ function renderGallery(images) {
     return;
   }
   latestGalleryImages = images;
-  el.innerHTML = images.map(img => {
-    const src = img.image && img.image.url ? img.image.url
-      : img.image && img.image.filepath ? API + '/output/' + img.image.filename
-      : img.url || (API + '/output/' + img.filename);
-    const ok = img.image ? img.image.success : img.success;
+  el.innerHTML = images.map((img) => {
+    const inner = img.image || {};
+    const ok = inner.success === true;
+    const fn = String(inner.filename || img.filename || '').trim();
+    const remoteUrl = String(inner.url || img.url || '').trim();
+    let src = '';
+    if (ok) {
+      if (remoteUrl) src = remoteUrl;
+      else if (fn) src = API + '/output/' + fn;
+    }
+    const errMsg = String(inner.error || img.error || (!ok ? '绘图接口返回失败' : '')).trim() || '绘图接口返回失败';
+    const mediaHtml = ok && src
+      ? `<img src=${JSON.stringify(src)} alt=${JSON.stringify(img.variation || '')} onclick="openLightboxEv(event, ${JSON.stringify(src)})" onerror="this.style.background='#fee2e2';this.alt='加载失败'">`
+      : `<div class="gallery-fail-ph"><span class="fail-title">无法显示图片</span><span class="fail-detail">${escapeHtml(errMsg)}</span></div>`;
     const index = Number.isInteger(img.index) ? img.index : 0;
     const isSelected = selectedImageIndex === index;
     const selectedCls = isSelected ? ' selected' : '';
     const variation = img.variation || ('方案 ' + (index + 1));
+    const ratioText = img.image_ratio || latestTaskImageRatio || '3:4';
+    const imageId = img.image_id || '';
     const chooseBtn = latestTaskId
       ? (
           isSelected
             ? `<button class="btn btn-outline btn-sm" type="button" disabled>已选择</button>`
-            : `<button class="btn btn-primary btn-sm" type="button" onclick="choosePreferredImage(${index}, '${variation.replace(/'/g, "\\'")}')">选这张</button>`
+            : `<button class="btn btn-primary btn-sm" type="button" onclick="event.stopPropagation();choosePreferredImage(${index}, '${variation.replace(/'/g, "\\'")}')">选这张</button>`
         )
       : '';
+    const downloadBtn = ok && src
+      ? `<a class="btn btn-outline btn-sm" href=${JSON.stringify(src)} download target="_blank" onclick="event.stopPropagation()">下载</a>`
+      : `<span class="btn btn-outline btn-sm" style="opacity:.45;cursor:not-allowed" title="生成失败，无法下载">下载</span>`;
     return `
     <div class="gallery-card${selectedCls}">
-      <img src="${src}" alt="${img.variation || ''}" onclick="openLightbox('${src}')" onerror="this.style.background='#fee2e2';this.alt='加载失败'">
+      ${mediaHtml}
       <div class="card-info">
         <div class="label">${img.variation || ('方案 ' + (img.index + 1))}</div>
-        <div class="meta">${ok ? '生成成功' : '生成失败'}</div>
+        <div class="meta">${ok ? '生成成功' : '生成失败'} · 比例 ${ratioText}${imageId ? ' · ' + imageId : ''}</div>
       </div>
       <div class="card-actions">
         ${chooseBtn}
-        <a class="btn btn-outline btn-sm" href="${src}" download target="_blank">下载</a>
+        ${downloadBtn}
       </div>
     </div>`;
   }).join('');
@@ -1220,6 +1359,7 @@ function viewTask(taskId) {
     .then(r => r.json()).then(d => {
       if (d.code === 200) {
         latestTaskId = taskId;
+        latestTaskImageRatio = d.task.image_ratio || '3:4';
         selectedImageIndex = null;
         switchTab('generate');
         renderGallery(d.task.images.map(img => ({...img, image: img})));
@@ -1245,6 +1385,7 @@ initRefImageControls();
 renderWhyDifferent(null);
 renderStyleAtomState();
 renderContextBadge();
+onAlphaSliderInput(document.getElementById('alphaSlider')?.value || 0.6);
 loadDesignControls();
 checkAuth();
 </script>

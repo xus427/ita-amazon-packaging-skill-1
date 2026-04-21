@@ -9,6 +9,7 @@ import random
 import hashlib
 import uuid
 import html
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from functools import wraps
@@ -21,6 +22,8 @@ from lib.image_generator import get_generator
 from lib.config import get_env, get_env_bool, get_env_int
 from lib.feishu_uploader import get_feishu_uploader
 from lib.image_analyzer import get_image_analyzer
+from lib.style_keywords import get_keyword_atom_effects
+from lib.design_requirement_engine import parse_design_requirement, build_prompt_from_spec
 from lib.models import (
     db, init_db, User, Project, GenerateTask, GeneratedImage,
     UserStyleAtom, StyleTraceLog,
@@ -39,6 +42,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///packdesign.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # 非 debug 时 Jinja 默认不监视模板变更，改 HTML 后易一直看到旧页
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+DEFAULT_STYLE_ALPHA = 0.6
+NEW_PROJECT_STYLE_ALPHA = 0.2
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -61,6 +67,7 @@ ATOM_CONFIG = {
     "mood_premium":      {"default": 0.40, "min": 0.00, "max": 1.00, "step_up": 0.05, "step_down": 0.05},
     "mood_playful":      {"default": 0.40, "min": 0.00, "max": 1.00, "step_up": 0.05, "step_down": 0.05},
     "minimalism_level":  {"default": 0.30, "min": 0.00, "max": 1.00, "step_up": 0.05, "step_down": 0.05},
+    "texture_realism":   {"default": 0.55, "min": 0.00, "max": 1.00, "step_up": 0.05, "step_down": 0.05},
 }
 
 DESIGN_CONTROLS_SCHEMA = [
@@ -97,6 +104,7 @@ DESIGN_CONTROLS_SCHEMA = [
             {"id": "mood_premium",     "label": "高级感"},
             {"id": "mood_playful",     "label": "趣味感"},
             {"id": "minimalism_level", "label": "极简程度"},
+            {"id": "texture_realism",  "label": "质感-真实程度（摄影风）"},
         ],
     },
 ]
@@ -224,6 +232,77 @@ def health():
         "feishu_upload": "ready" if feishu_configured else "not_configured",
         "index_template": index_template,
         "index_has_ref_paste_ui": has_ref_paste_ui,
+    })
+
+
+def _probe_automatic1111_api(base_url: str, timeout: float = 3.0) -> dict:
+    """
+    检测本机 / 局域网 AUTOMATIC1111 WebUI API 是否可用。
+    GET /sdapi/v1/sd-models 返回 200 且有 JSON，即视为 API 已启用。
+    """
+    u = str(base_url or "").strip().rstrip("/")
+    if not u:
+        return {"reachable": False, "http_status": None, "error": "empty_url"}
+    probe = u + "/sdapi/v1/sd-models"
+    try:
+        r = requests.get(probe, timeout=timeout)
+        ok_json = False
+        try:
+            js = r.json()
+            ok_json = isinstance(js, list) if js is not None else False
+        except Exception:
+            ok_json = False
+        reachable = r.status_code == 200 and ok_json
+        err = ""
+        if not reachable:
+            err = (
+                f"HTTP {r.status_code}：请确认 AUTOMATIC1111 已启动且含 --api，"
+                "sd_api_url 端口与控制台一致。"
+                "若出现 502，多为该端口不是 WebUI、或被其它代理/程序占用。"
+            )
+        return {
+            "reachable": reachable,
+            "http_status": r.status_code,
+            "probe_url": probe,
+            "error": err if not reachable else "",
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "reachable": False,
+            "http_status": None,
+            "probe_url": probe,
+            "error": str(e),
+        }
+
+
+@app.route("/api/sd-status", methods=["GET"])
+def sd_status():
+    """自检 SD_API_URL 是否与可用的 AUTOMATIC1111 API 对齐（浏览器或 curl 打开即可）。"""
+    sd_url = str(get_env("SD_API_URL", "") or "").strip()
+    base = sd_url.rstrip("/") if sd_url else ""
+    hint = (
+        "两项检查：① sd_api_reachable=true 表示第一项（WebUI 已启动且 API 可用）；"
+        "② WebUI 控制台里的访问地址须与 sd_api_url（.env 中 SD_API_URL）一致。"
+    )
+    if not base:
+        return jsonify({
+            "sd_api_url_configured": False,
+            "sd_api_url": None,
+            "sd_api_reachable": False,
+            "sd_probe_http_status": None,
+            "sd_probe_url": None,
+            "sd_error": "SD_API_URL 未配置（项目根目录 .env）",
+            "hint": hint,
+        })
+    probe = _probe_automatic1111_api(base)
+    return jsonify({
+        "sd_api_url_configured": True,
+        "sd_api_url": base,
+        "sd_api_reachable": probe.get("reachable"),
+        "sd_probe_http_status": probe.get("http_status"),
+        "sd_probe_url": probe.get("probe_url"),
+        "sd_error": probe.get("error") or "",
+        "hint": hint,
     })
 
 
@@ -617,6 +696,31 @@ def style_adjust_reset():
     })
 
 
+@app.route("/api/style-weaken", methods=["POST"])
+@login_required
+def style_weaken():
+    """弱化当前项目历史风格影响（全部 atom 乘以 0.7，含下限保护）。"""
+    data = request.get_json() or {}
+    ctx = _get_request_context(data)
+    current_atoms = get_style_atoms(ctx["user_id"], ctx["project_id"])
+    weakened = {}
+    for atom, cfg in ATOM_CONFIG.items():
+        old_v = float(current_atoms.get(atom, cfg["default"]))
+        weakened[atom] = _clamp(old_v * 0.7, cfg["min"], cfg["max"])
+
+    updated_atoms = save_style_atoms(ctx["user_id"], ctx["project_id"], weakened)
+    return jsonify({
+        "code": 200,
+        "msg": "style weakened",
+        "data": {
+            "user_id": ctx["user_id"],
+            "project_id": ctx["project_id"],
+            "factor": 0.7,
+            "atoms": updated_atoms,
+        },
+    })
+
+
 @app.route("/api/style-feedback", methods=["POST"])
 @login_required
 def style_feedback():
@@ -744,6 +848,45 @@ def _analyze_reference(image_source: str, extra: str = "") -> dict:
     return {}
 
 
+def _analyze_references(image_sources: list, extra: str = "") -> dict:
+    """支持多张参考图分析，并合并结果。"""
+    merged = {}
+    analyses = []
+    for src in image_sources or []:
+        src = str(src or "").strip()
+        if not src:
+            continue
+        item = _analyze_reference(src, extra)
+        if item:
+            analyses.append(item)
+    if not analyses:
+        return merged
+
+    for item in analyses:
+        for k, v in item.items():
+            if v is None or v == "":
+                continue
+            if isinstance(v, list):
+                base = merged.get(k, [])
+                if not isinstance(base, list):
+                    base = [str(base)]
+                for x in v:
+                    if x not in base:
+                        base.append(x)
+                merged[k] = base
+            else:
+                text = str(v).strip()
+                if not text:
+                    continue
+                if k not in merged:
+                    merged[k] = text
+                else:
+                    old = str(merged[k]).strip()
+                    if text not in old:
+                        merged[k] = f"{old}; {text}"
+    return merged
+
+
 def _safe_json_list(raw) -> list:
     if isinstance(raw, list):
         return raw
@@ -758,6 +901,25 @@ def _safe_json_list(raw) -> list:
 
 def _clamp(v: float, vmin: float, vmax: float) -> float:
     return max(vmin, min(vmax, v))
+
+
+def _apply_spec_atom_hints(atoms: dict, spec: dict) -> dict:
+    """让 design spec 对 style_atoms 产生可控增益。"""
+    result = dict(atoms or {})
+    hint = (spec or {}).get("style_hint", {})
+    boosts = {
+        "color_contrast": float(hint.get("contrast_boost", 0.0) or 0.0),
+    }
+    text_hint = (spec or {}).get("text", {})
+    boosts["headline_scale"] = float(text_hint.get("headline_scale_boost", 0.0) or 0.0)
+
+    for atom, delta in boosts.items():
+        if atom not in ATOM_CONFIG or abs(delta) < 1e-9:
+            continue
+        cfg = ATOM_CONFIG[atom]
+        base = float(result.get(atom, cfg["default"]))
+        result[atom] = _clamp(base + delta, cfg["min"], cfg["max"])
+    return result
 
 
 def _normalize_project_id(project_id: str) -> str:
@@ -828,92 +990,57 @@ def _apply_user_atom_overrides(user_id: str, project_id: str, atoms: dict) -> di
     return merged
 
 
-def resolve_style_atoms(user_id: str, project_id: str, style_keywords: list = None, overrides: dict = None) -> dict:
+def resolve_style_atoms(user_id: str, project_id: str, style_keywords: list = None, overrides: dict = None, alpha: float = None) -> dict:
     """
     用户级风格状态解析：
     1. 关键词投影 baseline
     2. 用户持久化 style_atoms 覆盖
     3. 本次请求 overrides 覆盖
     """
-    keyword_base = _compute_style_atoms_from_keywords(style_keywords or [])
-    persisted = _get_persisted_atom_values(user_id, project_id)
-    defaults = {atom: cfg["default"] for atom, cfg in ATOM_CONFIG.items()}
-    normalized_overrides = _normalize_style_overrides(overrides)
-    is_new_project = len(persisted) == 0
+    keyword_atoms = _compute_style_atoms_from_keywords(style_keywords or [])
+    persisted_atoms = _get_persisted_atom_values(user_id, project_id)
+    overrides_atoms = _normalize_style_overrides(overrides)
+    is_new_project = len(persisted_atoms) == 0
 
-    if is_new_project:
-        # 新项目首次生成：以“关键词注入的初始风格”为起点（而不是纯默认值）
-        # 并避免前端初始滑块默认值把关键词注入结果覆盖回默认。
-        merged = dict(keyword_base)
-        filtered_overrides = {}
-        for atom, value in normalized_overrides.items():
-            if abs(float(value) - float(defaults.get(atom, 0.5))) > 1e-9:
-                filtered_overrides[atom] = value
-        merged.update(filtered_overrides)
-    else:
-        merged = dict(keyword_base)
-        merged.update(persisted)
-        merged.update(normalized_overrides)
+    mix_alpha = NEW_PROJECT_STYLE_ALPHA if is_new_project else DEFAULT_STYLE_ALPHA
+    if alpha is not None:
+        try:
+            mix_alpha = _clamp(float(alpha), 0.0, 1.0)
+        except Exception:
+            pass
+
+    merged = {}
+    for key, cfg in ATOM_CONFIG.items():
+        k_val = float(keyword_atoms.get(key, cfg["default"]))
+        p_val = float(persisted_atoms.get(key, k_val))
+        merged[key] = _clamp((mix_alpha * p_val) + ((1.0 - mix_alpha) * k_val), cfg["min"], cfg["max"])
+
+    # 手动覆盖优先级最高
+    merged.update(overrides_atoms)
+    print("[STYLE_MIX]", {
+        "alpha": mix_alpha,
+        "is_new_project": is_new_project,
+        "persisted": persisted_atoms,
+        "keyword": keyword_atoms,
+        "final": merged,
+    })
     return merged
 
 
-def _resolve_style_atoms(user_id: str, style_keywords: list, project_id: str = None, overrides: dict = None) -> dict:
-    return resolve_style_atoms(user_id, project_id or "default_project", style_keywords, overrides)
+def _resolve_style_atoms(user_id: str, style_keywords: list, project_id: str = None, overrides: dict = None, alpha: float = None) -> dict:
+    return resolve_style_atoms(user_id, project_id or "default_project", style_keywords, overrides, alpha=alpha)
 
 
 def _compute_style_atoms_from_keywords(keywords: list) -> dict:
     """将风格关键词映射为完整 design_controls baseline（0~1）。"""
     atoms = {atom: cfg["default"] for atom, cfg in ATOM_CONFIG.items()}
-
-    boosts = {
-        "color_contrast": {
-            "卡通": 0.03, "可爱": 0.02, "趣味": 0.08, "科技": 0.06, "3D": 0.04, "复古": 0.03,
-        },
-        "palette_warmth": {
-            "可爱": 0.05, "趣味": 0.06, "复古": 0.04, "自然": 0.03,
-            "科技": -0.06, "简约": -0.03, "高端": -0.02,
-        },
-        "color_saturation": {
-            "卡通": 0.05, "可爱": 0.04, "趣味": 0.08, "3D": 0.03,
-            "简约": -0.08, "高端": -0.05, "自然": -0.03,
-        },
-        "layout_density": {
-            "简约": -0.08, "高端": -0.04, "复古": 0.02, "科技": 0.02, "DIY": 0.04, "趣味": 0.05,
-        },
-        "whitespace_ratio": {
-            "简约": 0.12, "高端": 0.08, "自然": 0.03,
-            "趣味": -0.05, "DIY": -0.05,
-        },
-        "frame_fill": {
-            "简约": -0.04, "高端": -0.02, "趣味": 0.03,
-        },
-        "headline_scale": {
-            "简约": 0.04, "科技": 0.03, "复古": 0.03, "趣味": 0.04, "DIY": 0.02,
-        },
-        "typography_weight": {
-            "科技": 0.05, "复古": 0.04, "趣味": 0.03, "DIY": 0.02,
-            "简约": -0.05, "高端": -0.03,
-        },
-        "mood_premium": {
-            "高端": 0.20, "简约": 0.08, "科技": 0.04,
-            "卡通": -0.08, "可爱": -0.06, "趣味": -0.08, "DIY": -0.05,
-        },
-        "mood_playful": {
-            "卡通": 0.15, "可爱": 0.12, "趣味": 0.18, "DIY": 0.05,
-            "高端": -0.10, "简约": -0.05, "科技": -0.04,
-        },
-        "minimalism_level": {
-            "简约": 0.25, "高端": 0.10,
-            "卡通": -0.08, "可爱": -0.05, "趣味": -0.08, "DIY": -0.05, "复古": -0.04,
-        },
-    }
-    for atom, cfg in boosts.items():
+    effects = get_keyword_atom_effects(keywords or [])
+    effect_scale = 0.25
+    for atom, delta in effects.items():
         if atom not in atoms:
             continue
-        for kw in keywords or []:
-            atoms[atom] += cfg.get(kw, 0.0)
         bounds = ATOM_CONFIG.get(atom, {"min": 0.0, "max": 1.0})
-        atoms[atom] = _clamp(atoms[atom], bounds["min"], bounds["max"])
+        atoms[atom] = _clamp(atoms[atom] + float(delta) * effect_scale, bounds["min"], bounds["max"])
     return atoms
 
 
@@ -1163,6 +1290,7 @@ def web_generate():
 
         count = min(int(data.get("count", 6)), 8)
         backend = data.get("image_backend", DEFAULT_BACKEND)
+        image_ratio = data.get("image_ratio", "3:4")
 
         task = GenerateTask(
             project_id=project.id,
@@ -1171,33 +1299,58 @@ def web_generate():
             package_type=data.get("package_type", "彩盒"),
             brand_name=data.get("brand_name", ""),
             style_keywords=json.dumps(data.get("style_keywords", []), ensure_ascii=False),
-            core_features=json.dumps(data.get("core_features", []), ensure_ascii=False),
+            core_features="[]",
             count=count,
             backend=backend,
+            image_ratio=image_ratio,
             status="running",
         )
         db.session.add(task)
         db.session.commit()
 
         ref_analysis = {}
-        ref_url = data.get("reference_image_url", "")
-        if ref_url:
-            ref_analysis = _analyze_reference(ref_url)
+        ref_sources = []
+        raw_refs = data.get("reference_image_urls", [])
+        if isinstance(raw_refs, list):
+            ref_sources.extend([str(x).strip() for x in raw_refs if str(x or "").strip()])
+        ref_url = str(data.get("reference_image_url", "")).strip()
+        if ref_url and ref_url not in ref_sources:
+            ref_sources.append(ref_url)
+        if ref_sources:
+            ref_analysis = _analyze_references(ref_sources)
+
+        user_input_text = str(data.get("design_brief_text", "")).strip()
+        spec = parse_design_requirement(user_input_text) if user_input_text else {
+            "product": {}, "visual_focus": {}, "layout": {}, "text": {}, "style_hint": {"keywords": []}, "constraints": {}
+        }
+        spec_keywords = (spec.get("style_hint", {}) or {}).get("keywords", []) or []
+        selected_keywords = data.get("style_keywords", []) or []
+        merged_style_keywords = []
+        for kw in [*selected_keywords, *spec_keywords]:
+            if kw not in merged_style_keywords:
+                merged_style_keywords.append(kw)
+        spec_prompt = build_prompt_from_spec(spec) if user_input_text else ""
 
         resolved_atoms = resolve_style_atoms(
             user_id=ctx["user_id"],
             project_id=project.id,
-            style_keywords=data.get("style_keywords", []),
+            style_keywords=merged_style_keywords,
             overrides=data.get("style_overrides") or data.get("_style_atoms") or {},
+            alpha=data.get("alpha", None),
         )
+        resolved_atoms = _apply_spec_atom_hints(resolved_atoms, spec)
         gen_params = {
             "product_name": product_name,
             "package_type": data.get("package_type", "彩盒"),
             "brand_name": data.get("brand_name", ""),
-            "core_features": data.get("core_features", []),
-            "style_keywords": data.get("style_keywords", []),
+            "style_keywords": merged_style_keywords,
+            "primary_color": data.get("primary_color", ""),
+            "image_ratio": image_ratio,
             "_style_atoms": resolved_atoms,
             "__style_atoms": resolved_atoms,
+            "_design_spec_prompt": spec_prompt,
+            "_design_spec": spec,
+            "design_brief_text": user_input_text,
             "context": ctx["context"],
         }
         if ref_analysis:
@@ -1213,13 +1366,36 @@ def web_generate():
             mj_api_key=get_env("MJ_API_KEY"),
         )
 
+        # 线程池里的 worker 不能访问 SQLAlchemy 模型（如 task.id），否则会触发无 Flask app context 报错
+        task_id_str = str(task.id)
+
         def _generate_one(var):
-            img = generator.generate(var["prompt"])
+            img = generator.generate(var["prompt"], image_ratio=gen_params.get("image_ratio", "3:4"))
             if img.get("success"):
                 feishu = _upload_to_feishu(img["filepath"])
                 if feishu.get("success"):
                     img["image_key"] = feishu["image_key"]
-            return {"index": var["index"], "variation": var["variation"], "image": img}
+            image_id = f"img_{task_id_str}_{int(var.get('index', 0)):03d}"
+            original_prompt = str(var.get("prompt", "") or "")
+            filepath = str(img.get("filepath", "") or "")
+            filename = str(img.get("filename", "") or "")
+            return {
+                "index": var["index"],
+                "variation": var["variation"],
+                "prompt": var.get("prompt", ""),
+                "image_id": image_id,
+                "original_prompt": original_prompt,
+                "current_prompt": original_prompt,
+                "image_url": str(img.get("url", "") or ""),
+                "filepath": filepath,
+                "filename": filename,
+                "features": {"style": "", "color": "", "composition": "", "material": ""},
+                "lock_config": {"composition": True, "subject": True, "style": False, "color": False},
+                "edit_history": [],
+                "style_atoms": resolved_atoms,
+                "design_spec": spec,
+                "image": img,
+            }
 
         images = []
         with ThreadPoolExecutor(max_workers=min(count, 4)) as pool:
@@ -1281,6 +1457,8 @@ def web_generate():
             "images": images,
             "total": count,
             "success_count": success_count,
+            "image_ratio": image_ratio,
+            "design_spec": spec,
             "msg": f"批量生成完成：{success_count}/{count} 张成功",
             "context": ctx["context"],
             "style_trace": style_trace,
@@ -1310,7 +1488,7 @@ def generate():
                     sd_api_url=get_env("SD_API_URL"),
                     mj_api_key=get_env("MJ_API_KEY"),
                 )
-                image_result = generator.generate(design["prompt"])
+                image_result = generator.generate(design["prompt"], image_ratio=data.get("image_ratio", "3:4"))
                 result["image"] = image_result
                 result["image_generated"] = image_result.get("success", False)
                 if image_result.get("success"):
@@ -1472,7 +1650,7 @@ def list_backends():
          "description": "免费、无需 API Key，适合快速测试",
          "requires_config": False},
         {"name": "sd", "display_name": "Stable Diffusion",
-         "description": "本地或远程 SD 服务，需要配置 SD_API_URL",
+         "description": "本地或远程 AUTOMATIC1111 txt2img API，需要 SD_API_URL",
          "requires_config": True, "config_key": "SD_API_URL"},
         {"name": "mj", "display_name": "Midjourney",
          "description": "通过第三方 API，需要配置 MJ_API_KEY",

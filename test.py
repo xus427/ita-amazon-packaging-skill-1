@@ -45,8 +45,7 @@ def test_design_only():
         payload = {
             "product_name": "儿童DIY手链套装",
             "package_type": "礼盒",
-            "style_keywords": ["卡通", "糖果色", "可爱"],
-            "core_features": ["500+配件", "无毒材料", "教程included"],
+            "style_keywords": ["童趣", "真实感"],
             "brand_name": "CraftJoy",
             "age_mark": "6+"
         }
@@ -59,7 +58,8 @@ def test_design_only():
             print(f"\n设计方案:")
             print(f"  产品: {design.get('product_name')}")
             print(f"  配色: {design.get('color_scheme', {}).get('name')}")
-            print(f"  卖点: {', '.join(design.get('selling_points', [])[:3])}")
+            tertiary = design.get('information_hierarchy', {}).get('tertiary', [])
+            print(f"  文本层级: {', '.join(tertiary[:3])}")
             print(f"\nAI提示词预览:")
             print(f"  {design.get('prompt', '')[:100]}...")
         return True
@@ -76,8 +76,7 @@ def test_generate_with_image():
         payload = {
             "product_name": "儿童DIY手链套装",
             "package_type": "礼盒",
-            "style_keywords": ["卡通", "糖果色"],
-            "core_features": ["500+配件", "无毒材料"],
+            "style_keywords": ["童趣", "真实感"],
             "brand_name": "CraftJoy",
             "age_mark": "6+",
             "generate_image": True,

@@ -29,7 +29,7 @@ Content-Type: application/json
   "product_name": "产品名称（必填）",
   "package_type": "包装类型，如：彩盒、礼盒、袋装",
   "target_market": "目标市场，如：美国、欧洲",
-  "style_keywords": ["风格关键词数组，如：卡通、可爱、简约"],
+  "style_keywords": ["风格关键词数组，如：真实感、北欧、科技"],
   "core_features": ["核心卖点数组，如：500+配件、无毒材料"],
   "brand_name": "品牌名称",
   "count": 6,
@@ -48,7 +48,7 @@ Content-Type: application/json
 {
   "product_name": "产品名称（必填）",
   "package_type": "彩盒",
-  "style_keywords": ["卡通", "糖果色"],
+  "style_keywords": ["童趣", "真实感"],
   "core_features": ["500+配件", "无毒材料"],
   "brand_name": "CraftJoy",
   "generate_image": true,

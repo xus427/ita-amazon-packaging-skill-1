@@ -81,6 +81,7 @@ class GenerateTask(db.Model):
     core_features = db.Column(db.Text, default="[]")
     count = db.Column(db.Integer, default=6)
     backend = db.Column(db.String(30), default="apiyi")
+    image_ratio = db.Column(db.String(10), default="3:4")
 
     status = db.Column(db.String(20), default="pending")  # pending / running / done / failed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -100,6 +101,7 @@ class GenerateTask(db.Model):
             "core_features": json.loads(self.core_features) if self.core_features else [],
             "count": self.count,
             "backend": self.backend,
+            "image_ratio": self.image_ratio or "3:4",
             "status": self.status,
             "created_at": self.created_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -200,6 +202,7 @@ def init_db(app):
     with app.app_context():
         db.create_all()
         _migrate_user_style_atoms_schema()
+        _migrate_generate_tasks_image_ratio()
         if not User.query.first():
             admin = User(username="admin", display_name="管理员")
             admin.set_password("admin123")
@@ -284,4 +287,21 @@ def _migrate_user_style_atoms_schema():
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_style_atoms_user_id ON user_style_atoms(user_id)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_style_atoms_project_id ON user_style_atoms(project_id)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_style_atoms_atom ON user_style_atoms(atom)"))
+    db.session.commit()
+
+
+def _migrate_generate_tasks_image_ratio():
+    """为 generate_tasks 增加 image_ratio 字段（兼容已有 SQLite）。"""
+    conn = db.session.connection()
+    table_exists = conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='generate_tasks'")
+    ).fetchone()
+    if not table_exists:
+        return
+
+    cols = conn.execute(text("PRAGMA table_info(generate_tasks)")).fetchall()
+    col_names = {c[1] for c in cols}
+    if "image_ratio" not in col_names:
+        conn.execute(text("ALTER TABLE generate_tasks ADD COLUMN image_ratio VARCHAR(10) DEFAULT '3:4'"))
+    conn.execute(text("UPDATE generate_tasks SET image_ratio='3:4' WHERE image_ratio IS NULL OR image_ratio=''"))
     db.session.commit()
